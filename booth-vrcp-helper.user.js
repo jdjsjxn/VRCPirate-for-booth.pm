@@ -1,40 +1,79 @@
 // ==UserScript==
-// @name        VRCPirate for booth.pm
-// @namespace   Violentmonkey Scripts
-// @match       https://booth.pm/en/items/*
-// @require     https://cdn.jsdelivr.net/npm/jquery@3/dist/jquery.min.js
-// @updateURL   https://github.com/VRCPirate/Userscripts/raw/refs/heads/main/booth-vrcp-helper.user.js
-// @grant       GM_xmlhttpRequest
-// @version     1.0
-// @author      doclan
-// @description 2026/8/10 14:22:14
+// @name         VRCPirate for booth.pm
+// @namespace    Violentmonkey Scripts
+// @match        https://booth.pm/*/items/*
+// @updateURL    https://github.com/VRCPirate/Userscripts/raw/refs/heads/main/booth-vrcp-helper.user.js
+// @grant        GM_xmlhttpRequest
+// @connect      api-v3.vrcpirate.com
+// @version      1.3.0
+// @author       doclan
+// @description  在 Booth 商品页面显示 VRCPirate 跳转链接
 // ==/UserScript==
 
-$(document).ready(() => {
-  // GM_xmlhttpRequest
-  // https://api-v3.vrcpirate.com/assets?page=1&search=123
+(() => {
+  'use strict';
 
-  const bid = window.location.pathname.split('items/')[1];
-  if(!bid)
-    return console.log("SOMETHING WENT WRONG");
+  const itemId = window.location.pathname.match(/^\/[^/]+\/items\/(\d+)(?:\/|$)/)?.[1];
+  if (!itemId) return;
 
-  const downloadBox = $('<div></div>');
-  const mainText = $('<p></p>');
-  downloadBox.append(mainText);
+  const variations = document.querySelector('#variations');
+  if (!variations?.parentElement) return;
 
-  $($('#variations').parent()).before(downloadBox);
+  const box = document.createElement('div');
+  box.className = 'vrcp-booth-helper';
+  box.style.margin = '1em 0';
+
+  const message = document.createElement('p');
+  message.textContent = '[VRCPirate] 正在搜索…';
+  box.append(message);
+  variations.parentElement.before(box);
 
   GM_xmlhttpRequest({
-    method: "GET",
-    url: `https://api-v3.vrcpirate.com/assets?page=1&search=${bid}`,
-    onload: function(response) {
-      const data = JSON.parse(response.responseText);
-      if(data.meta.totalItems > 0)
-      {
-        mainText.html(`[🟢] <a href="https://vrcpirate.com/iviewer/${data.data[0].id}" target="__blank">Click Here</a>`);
+    method: 'GET',
+    url: `https://api-v3.vrcpirate.com/assets?page=1&search=${encodeURIComponent(itemId)}`,
+    timeout: 15000,
+
+    onload: (response) => {
+      if (response.status < 200 || response.status >= 300) {
+        message.textContent = `[VRCPirate] 搜索失败（HTTP ${response.status}）。`;
+        return;
       }
-    }
+
+      try {
+        const result = JSON.parse(response.responseText);
+        const asset = Array.isArray(result?.data) ? result.data[0] : null;
+        const assetId = asset?.id;
+
+        if (
+          !result?.meta ||
+          result.meta.totalItems < 1 ||
+          (typeof assetId !== 'string' && typeof assetId !== 'number')
+        ) {
+          message.textContent = '[VRCPirate] 没有找到匹配的资源。';
+          return;
+        }
+
+        const link = document.createElement('a');
+        link.href = `https://vrcpirate.com/iviewer/${encodeURIComponent(String(assetId))}`;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = '点击这里跳转免费';
+
+        message.replaceChildren(document.createTextNode('[🟢] '), link);
+      } catch (error) {
+        console.error('[VRCPirate] API 响应解析失败：', error);
+        message.textContent = '[VRCPirate] 无法读取搜索结果。';
+      }
+    },
+
+    onerror: () => {
+      message.textContent = '[VRCPirate] 搜索时发生网络错误。';
+    },
+
+    ontimeout: () => {
+      message.textContent = '[VRCPirate] 搜索超时。';
+    },
   });
 
-  console.log("[VRCPirate] UserScript Loaded!");
-})
+  console.log('[VRCPirate] UserScript 已加载，商品 ID：', itemId);
+})();
